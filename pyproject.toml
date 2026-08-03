@@ -32,3 +32,7 @@ select = ["E", "F", "I", "N", "W", "UP"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+"databento>=0.30",
+"python-dotenv>=1.0",
+"pyarrow>=14.0",
