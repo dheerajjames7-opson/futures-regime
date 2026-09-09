@@ -3,7 +3,7 @@ from datetime import date
 import pandas as pd
 import pytest
 
-from futures_lab.data.contracts import is_outright, parse_contract
+from futures_lab.data.contracts import is_outright, last_trade_bound, parse_contract
 
 # Symbol shapes below are taken from data/raw/*.parquet, not invented.
 
@@ -30,15 +30,56 @@ def test_parse_real_symbol_shapes(symbol, root, as_of, expected):
     assert parse_contract(symbol, root, as_of) == expected
 
 
+@pytest.mark.parametrize(
+    ("root", "year", "month", "expected"),
+    [
+        ("CL", 2020, 5, date(2020, 4, 21)),  # CLK0, the negative-price contract
+        ("CL", 2019, 6, date(2019, 5, 21)),  # CLM9
+        ("CL", 2019, 7, date(2019, 6, 20)),  # CLN9
+        # CLF6 wraps to the prior year. True last trade was 2025-12-19 because Christmas
+        # is a holiday; the holiday-blind bound is 2025-12-22, later by design (never earlier).
+        ("CL", 2026, 1, date(2025, 12, 22)),
+        ("ES", 2016, 3, date(2016, 3, 31)),
+        ("GC", 2024, 2, date(2024, 2, 29)),
+    ],
+)
+def test_last_trade_bound_matches_cme_rule(root, year, month, expected):
+    assert last_trade_bound(root, year, month) == expected
+
+
+@pytest.mark.parametrize(
+    ("symbol", "as_of", "expected_year"),
+    [
+        ("CLM9", date(2019, 5, 20), 2019),  # day before June 2019 expiry
+        ("CLM9", date(2019, 5, 22), 2029),  # day after: relisted June 2029
+        ("CLM9", date(2019, 6, 20), 2029),  # instrument 323547, first print
+        ("CLN9", date(2019, 6, 20), 2019),  # July 2019 still trading on its last day
+        ("CLN9", date(2019, 6, 25), 2029),
+    ],
+)
+def test_cl_relisted_symbols_resolve_by_expiry_not_calendar_year(symbol, as_of, expected_year):
+    assert parse_contract(symbol, "CL", as_of)[0] == expected_year
+
+
+def test_non_cl_contract_stays_in_its_month_after_expiry_day():
+    # ESM9 expired 2019-06-21; a print later that month is still June 2019, since ES is
+    # never listed ten years out and cannot have been relisted.
+    assert parse_contract("ESM9", "ES", date(2019, 6, 28)) == (2019, 6)
+
+
 def test_decade_boundary_orders_correctly():
     as_of = date(2019, 12, 2)
     assert parse_contract("ESZ9", "ES", as_of) < parse_contract("ESH0", "ES", as_of)
 
 
-def test_year_never_precedes_observation_year():
-    for digit in range(10):
-        year, _ = parse_contract(f"ESH{digit}", "ES", date(2023, 6, 1))
-        assert 2023 <= year <= 2032
+@pytest.mark.parametrize("root", ["ES", "CL"])
+def test_resolved_contract_is_the_earliest_not_yet_expired(root):
+    as_of = date(2023, 6, 1)
+    for code, month in [("H", 3), ("M", 6), ("Z", 12)]:
+        for digit in range(10):
+            year, _ = parse_contract(f"{root}{code}{digit}", root, as_of)
+            assert last_trade_bound(root, year, month) >= as_of
+            assert last_trade_bound(root, year - 10, month) < as_of
 
 
 def test_accepts_pandas_timestamp():
