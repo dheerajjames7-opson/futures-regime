@@ -1,15 +1,18 @@
 import pandas as pd
+
 from futures_lab.data.contracts import sort_key
 
+
 def daily_volume_leader(df: pd.DataFrame, root: str) -> pd.DataFrame:
-    
+
     idx = df.groupby(df.index.date)["volume"].idxmax()
     leader = df.loc[idx, ["symbol", "close", "volume"]].copy()
     leader.index = pd.to_datetime(leader.index.date)
     return leader
 
+
 def detect_rolls(leader: pd.DataFrame, root: str, confirm_days: int = 2) -> pd.DataFrame:
-    
+
     rolls = []
     current = leader["symbol"].iloc[0]
     streak_symbol, streak = None, 0

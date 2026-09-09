@@ -1,11 +1,21 @@
 MONTH_CODES = {
-    "F": 1, "G": 2, "H": 3, "J": 4, "K": 5, "M": 6,
-    "N": 7, "Q": 8, "U": 9, "V": 10, "X": 11, "Z": 12,
+    "F": 1,
+    "G": 2,
+    "H": 3,
+    "J": 4,
+    "K": 5,
+    "M": 6,
+    "N": 7,
+    "Q": 8,
+    "U": 9,
+    "V": 10,
+    "X": 11,
+    "Z": 12,
 }
 
 
 def parse_contract(symbol: str, root: str) -> tuple[int, int]:
-    suffix = symbol[len(root):]
+    suffix = symbol[len(root) :]
     month_code, year_digits = suffix[0], suffix[1:]
     if month_code not in MONTH_CODES:
         raise ValueError(f"Unknown month code in {symbol!r}")

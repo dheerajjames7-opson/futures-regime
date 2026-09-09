@@ -5,8 +5,7 @@ from futures_lab.data.rolls import detect_rolls
 
 def _leader(symbols: list[str]) -> pd.DataFrame:
     dates = pd.date_range("2026-01-01", periods=len(symbols), freq="B")
-    return pd.DataFrame({"symbol": symbols, "close": 100.0, "volume": 1000},
-                        index=dates)
+    return pd.DataFrame({"symbol": symbols, "close": 100.0, "volume": 1000}, index=dates)
 
 
 def test_clean_roll_detected():
