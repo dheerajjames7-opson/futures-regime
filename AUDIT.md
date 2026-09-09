@@ -26,12 +26,14 @@ fixes below are small, but a reviewer who runs `pytest` first would stop reading
 | 6 | Major | Data hygiene | Databento `ohlcv-1d` bars are UTC-day aligned, not CME-session aligned. Each root has 540 Sunday bars (the 17:00–18:00 CT Globex open), giving ~311 "days" per year instead of ~252. Sunday bars hold 0.3–0.7% of volume. Left in, they inflate realized-vol day counts and produce a spike in Amihud (abs return over volume) every week. | Fixed |
 | 7 | Major | Tests | `test_contracts.py` and `test_rolls.py` use `ESH26`, `6EZ25`, `ESM26`, forms absent from the data. No test covers single-digit years, decade rollover (`ESZ9` to `ESH0`), spreads, `daily_volume_leader`, duplicate indices, or empty results. Coverage was green on a broken module. | Fixed |
 | 8 | Major | Notebooks | Notebook 02's stored outputs are an `ImportError` and a `NameError` (run before `detect_rolls` existed). Notebook 01 cell 2 has five bare expressions of which only the last displays. Notebook 02 writes to `docs/figures/`, which does not exist. | Fixed |
-| 9 | Major | Docs | `README.md` is a CI badge and nothing else. `data/README.md` says "~$X.XX (fill in your actual number)" and links to a `docs/methodology.md` that does not exist. | Partly fixed (see plan) |
+| 9 | Major | Docs | `README.md` is a CI badge and nothing else. `data/README.md` says "~$X.XX (fill in your actual number)" and links to a `docs/methodology.md` that does not exist. | Fixed for now: interim README with status, quickstart and layout; data README with the measured cost ($7.51) and the data caveats. The research-note README and `docs/methodology.md` belong to the docs phase. |
 | 10 | Minor | Build | `arch` (GARCH) is a dependency; GARCH is explicitly out of scope. `statsmodels` is unused. `python-dotenv` and `pyarrow` are used but sat in the broken lines, so `pip install -e .` would not install them. CI commit says "ruff and pytest" but the workflow only runs pytest. | Fixed |
 | 11 | Minor | Roll detection | `detect_rolls` on an empty leader raises `IndexError` at `iloc[0]`; with no rolls it returns a frame with no columns, so `rolls["roll_date"]` fails downstream. `root` parameter of `daily_volume_leader` is unused. `roll_date` is the confirmation day, not the first crossover day, which is a valid choice but undocumented. | Fixed |
 | 12 | Minor | Scripts | `RAW_DIR = Path("data/raw")` is CWD-relative; `os.environ["DATABENTO_API_KEY"]` gives a bare `KeyError`; `ROOTS`, `START`, `END` duplicated across two scripts. | Fixed |
 | 13 | Minor | Style | `rolls.py` has whitespace-only lines, one blank line between top-level defs, unsorted import groups, no docstrings. Would fail `ruff` once ruff can run. | Fixed |
 | 14 | Cosmetic | Git | Commit `ad630aa` is titled "Contracts and rollbacks" (it adds roll detection, not rollbacks). `f60cb7f` and `851e67a` are the same change committed twice around a merge. History is pushed, so left alone. | Not fixed (intentional) |
+| 15 | Major | Scope | The brief lists a "roll calendar build script" among the completed Day 1–3 work. No such script existed in the repo. | Fixed: `scripts/build_roll_calendar.py`; calendars committed under `data/processed/`. |
+| 16 | Major | Contract parsing | Found while fixing, not in the first pass: CL is listed ten years out, so `CLM9` (instrument 323547) prints on 2019-06-20, four weeks after June 2019 expired, and is June 2029. A calendar-year window mis-dates it; resolution has to use the product's last-trading-day rule (CL: three business days before the 25th of the prior month). Caught by the loader's one-to-one instrument/contract check, which is the reason that check exists. | Fixed |
 
 ## What exists versus the intended scope
 
@@ -146,4 +148,45 @@ now.
 
 ## Post-fix verification
 
-Filled in after the fix commits (see bottom of file).
+Fix commits, in order: `146ebdb` build, `3ab2c45` contracts, `5aba571` loader and rolls,
+`90a6fa9` scripts, then the docs commit that carries this section. Everything below was
+measured after those commits on Python 3.12.8, pandas 3.0.3, numpy 2.5.1.
+
+**Toolchain.** `ruff check .` and `ruff format --check .` clean. `pytest`: 96 passed,
+4 skipped (the CL-only negative-price test on the other four roots). The GitHub run itself
+could not be checked from this machine (no `gh`), but every command in the workflow was
+run locally as written.
+
+**Loader.** No weekend sessions in any root. `(instrument_id, session)` unique in every
+root. Instruments and resolved contracts map one-to-one in every root, including the 43
+CL and 33 GC symbol strings that name two instruments. ES sessions per full year 2016–2025:
+259 to 261. That is above 252 because Globex runs abbreviated sessions on most US
+holidays; ES has 9 to 11 such sessions a year with median volume around 150k against a
+normal-day median around 1.4M. They are real sessions and are kept.
+
+**Roll calendar.**
+
+| Root | Rolls | Expected | Months rolled into |
+|---|---|---|---|
+| ES | 42 | 42 | H, M, U, Z only |
+| ZB | 42 | 42 | H, M, U, Z only |
+| CL | 126 | 126 | all twelve |
+| GC | 53 | 52 | G, J, M, Q, Z only |
+| 6E | 42 | 42 | H, M, U, Z only |
+
+Roll dates are strictly increasing and the target contract strictly later at every roll.
+`roll_date` follows `crossover_date` by exactly one session for every roll in every root.
+ES rolls land 3 calendar days (21 rolls) or 4 calendar days (21 rolls) before the third
+Friday, i.e. the Tuesday or Monday of expiry week, consistent with volume crossing on the
+prior Friday or Monday and the two-session rule confirming one session later.
+
+**CL, April 2020.** CLM0 became the volume leader on 2020-04-16; the roll is confirmed on
+2020-04-17. CLK0's −2.67 UTC-bar close on 2020-04-20 never enters the front-month series,
+whose minimum close over the whole sample is 12.26.
+
+**Notebooks.** Both re-executed end to end with `nbconvert` and zero errors; stored
+outputs now show the checks above. `docs/figures/es_roll_dates.png` is produced by
+notebook 02.
+
+**Cost.** `scripts/estimate_cost.py` reports $7.51 for the full pull, now recorded in
+`data/README.md` in place of the placeholder.
