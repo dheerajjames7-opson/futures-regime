@@ -1,6 +1,6 @@
 import pandas as pd
 
-from futures_lab.data.contracts import sort_key
+from futures_lab.data.contracts import parse_contract
 
 
 def daily_volume_leader(df: pd.DataFrame, root: str) -> pd.DataFrame:
@@ -21,7 +21,7 @@ def detect_rolls(leader: pd.DataFrame, root: str, confirm_days: int = 2) -> pd.D
         if sym == current:
             streak_symbol, streak = None, 0
             continue
-        if sort_key(sym, root) <= sort_key(current, root):
+        if parse_contract(sym, root, date) <= parse_contract(current, root, date):
             continue  # backward reversion: noise
         if sym == streak_symbol:
             streak += 1
