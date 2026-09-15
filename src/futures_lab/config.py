@@ -27,6 +27,16 @@ def raw_path(root: str, raw_dir: Path | None = None) -> Path:
     return (raw_dir or RAW_DIR) / f"{root.lower()}_ohlcv_1d.parquet"
 
 
+def roll_calendar_path(root: str, processed_dir: Path | None = None) -> Path:
+    """Roll calendar CSV for one root, e.g. ``data/processed/roll_calendar_es.csv``."""
+    return (processed_dir or PROCESSED_DIR) / f"roll_calendar_{root.lower()}.csv"
+
+
+def continuous_path(root: str, processed_dir: Path | None = None) -> Path:
+    """Continuous-contract parquet for one root, e.g. ``data/processed/continuous_es.parquet``."""
+    return (processed_dir or PROCESSED_DIR) / f"continuous_{root.lower()}.parquet"
+
+
 def databento_api_key() -> str:
     """Read ``DATABENTO_API_KEY`` from ``<repo>/.env`` or the environment."""
     from dotenv import load_dotenv

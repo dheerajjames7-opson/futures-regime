@@ -5,10 +5,12 @@ Expected roll counts come from contract-month arithmetic over 2016-01 to 2026-06
 with a 10% tolerance for the sample edges.
 """
 
+import numpy as np
 import pandas as pd
 import pytest
 
-from futures_lab.config import ROLL_CONFIRM_DAYS, ROOTS, raw_path
+from futures_lab.config import ROLL_CONFIRM_DAYS, ROOTS, raw_path, roll_calendar_path
+from futures_lab.data.continuous import build_continuous, load_roll_calendar, roll_gaps
 from futures_lab.data.contracts import parse_contract
 from futures_lab.data.load import load_outrights
 from futures_lab.data.rolls import daily_volume_leader, detect_rolls
@@ -86,3 +88,67 @@ def test_cl_front_never_prints_negative(leader, root):
     assert leader["close"].min() > 0
     # CLK0 settled at -37.63 on 2020-04-20; the volume leader had already moved to CLM0.
     assert leader.loc["2020-04-20", "symbol"] == "CLM0"
+
+
+# --- continuous contracts -----------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def committed_calendar(root):
+    if not roll_calendar_path(root).exists():
+        pytest.skip("roll calendar not built; run scripts/build_roll_calendar.py")
+    return load_roll_calendar(root)
+
+
+@pytest.fixture(scope="module")
+def cont(bars, committed_calendar):
+    return build_continuous(bars, committed_calendar)
+
+
+def test_committed_calendar_matches_the_detector(rolls, committed_calendar):
+    fresh = rolls.reset_index(drop=True)
+    pd.testing.assert_frame_equal(
+        fresh.astype({"from_instrument_id": "int64", "to_instrument_id": "int64"}),
+        committed_calendar[fresh.columns],
+        check_dtype=False,
+    )
+
+
+def test_continuous_covers_every_session_without_gaps(cont, leader):
+    assert len(cont) == len(leader)
+    assert cont.index.is_unique and cont.index.is_monotonic_increasing
+    assert not cont[["open", "high", "low", "close", "volume", "adj_close"]].isna().any().any()
+    assert np.isfinite(cont["ret"].to_numpy()[1:]).all()
+    assert np.isfinite(cont["log_ret"].to_numpy()[1:]).all()
+
+
+def test_last_segment_is_at_traded_prices(cont, committed_calendar):
+    tail = cont.loc[committed_calendar["roll_date"].max() :]
+    assert (tail["adjustment"] == 0).all()
+    assert (tail["adj_close"] == tail["close"]).all()
+
+
+def test_adjustment_is_the_suffix_sum_of_roll_gaps(cont, bars, committed_calendar):
+    gaps = roll_gaps(bars, committed_calendar)
+    assert cont["adjustment"].iloc[0] == pytest.approx(gaps.sum())
+    step = cont["adjustment"].diff().loc[committed_calendar["roll_date"]].to_numpy()
+    np.testing.assert_allclose(step, -gaps.to_numpy())
+
+
+def test_every_return_is_a_single_contracts_own_return(cont, bars):
+    # Held contract on session t: the shown instrument, except on roll days where it is
+    # the outgoing one. Its return is close(t)/close(t-1) - 1 within that same contract.
+    close = bars.reset_index().pivot(index="session", columns="instrument_id", values="close")
+    own = close / close.shift(1) - 1
+    held = cont["instrument_id"].shift(1).bfill().astype("int64")  # previous row's holder
+    expected = own.to_numpy()[np.arange(len(cont)), close.columns.get_indexer(held)]
+    got = cont["ret"].to_numpy()
+    np.testing.assert_allclose(got[1:], expected[1:], rtol=1e-12, atol=1e-15)
+
+
+def test_no_phantom_jump_on_roll_days(cont):
+    # Roll-day returns are ordinary returns; a mis-applied gap shows up as a fat tail here.
+    roll_abs = cont.loc[cont["is_roll"], "ret"].abs()
+    all_abs = cont["ret"].abs().dropna()
+    assert roll_abs.median() < 3 * all_abs.median()
+    assert roll_abs.max() <= all_abs.quantile(0.999)

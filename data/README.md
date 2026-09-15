@@ -63,3 +63,26 @@ close, volume`, indexed by tz-naive session date.
 
 Counts over 2016-01 to 2026-06: ES 42, ZB 42, CL 126, GC 53, 6E 42. Contract-month
 arithmetic over 10.5 years predicts 42 / 42 / 126 / 52 / 42.
+
+## Continuous contracts (`data/processed/continuous_<root>.parquet`, git-ignored)
+
+Built by `python scripts/build_continuous.py` from the raw cache and the committed roll
+calendars. Not committed because the series is a rearrangement of licensed Databento
+prices. One row per session:
+
+| Column | Meaning |
+|---|---|
+| `instrument_id`, `symbol` | contract held at the close (incoming contract from `roll_date` on) |
+| `open`, `high`, `low`, `close`, `volume` | that contract at traded prices |
+| `volume_all` | summed volume of every outright that session |
+| `adjustment` | additive shift: sum of the gaps of all later rolls; zero from the last roll on |
+| `adj_open` .. `adj_close` | traded prices plus `adjustment` (difference-adjusted series) |
+| `is_roll` | True on `roll_date` sessions |
+| `ret`, `log_ret` | `adj_close.diff() / close.shift(1)` and `log1p` of it: the return of the contract actually held, exact through rolls |
+
+The gap of a roll is the incoming close minus the outgoing close on `roll_date`. The
+position holds the outgoing contract through that session and rolls at its close, so the
+`roll_date` row's return is the outgoing contract's. The adjusted level is a cumulative
+P&L, not a price: never divide by it or take its log (for CL it drifts far from the
+traded level). The reasons for difference rather than ratio adjustment are in the module
+docstring of `futures_lab.data.continuous`.
